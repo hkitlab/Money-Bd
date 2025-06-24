@@ -8,10 +8,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/lucide-static@latest/dist/lucide.min.js"></script>
 
-    <!-- Firebase Scripts -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, RecaptchaVerifier, signInWithPhoneNumber, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
 
@@ -26,10 +25,6 @@
                 appId: "1:98055922055:web:a2673dc456a8af37e97322"
             };
             
-            // --- "auth/internal-error" THIK KORAR JONNO EI DUITA KAJ OBOSSHOI KORUN ---
-            // 1. Firebase Console -> Authentication -> Settings -> Authorized Domains -> Add your domain (e.g., neybd.netlify.app)
-            // 2. Firebase Console -> Build -> App Check -> Apps -> Turn "Enforce" OFF for your app.
-            
             const app = initializeApp(firebaseConfig);
             const auth = getAuth(app);
             const db = getFirestore(app);
@@ -41,7 +36,6 @@
             const messageBox = document.getElementById('message-box');
             
             // --- State Variables ---
-            window.confirmationResult = null;
             let kycData = {};
             let currentUser = null;
 
@@ -72,7 +66,7 @@
                         showScreen('app-screen');
                     } else {
                         kycData.uid = user.uid;
-                        kycData.phoneNumber = user.phoneNumber;
+                        kycData.email = user.email;
                         showScreen('kyc-start-screen');
                     }
                 } else {
@@ -81,56 +75,35 @@
                 }
             });
 
-            // --- Step 1: Phone Auth & reCAPTCHA ---
-            function setupRecaptcha() {
-                 if (!window.recaptchaVerifier) {
-                     window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
-                        'size': 'invisible',
-                        'callback': () => {},
-                    });
-                    window.recaptchaVerifier.render().catch(err => {
-                        showMessage('reCAPTCHA Error: Check Firebase "Authorized Domains" setting.', true);
-                    });
-                 }
-            }
-
+            // --- Step 1: Email/Password Auth ---
             document.getElementById('start-reg-btn')?.addEventListener('click', () => {
-                showScreen('phone-screen');
-                setupRecaptcha();
+                showScreen('login-screen');
             });
             
-            document.getElementById('phone-form')?.addEventListener('submit', (e) => {
+            document.getElementById('login-form')?.addEventListener('submit', (e) => {
                 e.preventDefault();
                 showLoading(true);
-                const phoneNumber = '+88' + document.getElementById('phone-number').value;
-                const appVerifier = window.recaptchaVerifier;
+                const email = document.getElementById('email-input').value;
+                const password = document.getElementById('password-input').value;
 
-                signInWithPhoneNumber(auth, phoneNumber, appVerifier)
-                    .then((confirmationResult) => {
-                        window.confirmationResult = confirmationResult;
-                        showLoading(false);
-                        showMessage('OTP sent successfully!', false);
-                        showScreen('otp-screen');
-                    }).catch((error) => {
-                        showLoading(false);
-                        showMessage('Failed to send OTP. Check number & Firebase config.', true);
+                signInWithEmailAndPassword(auth, email, password)
+                    .catch((error) => {
+                        if (error.code === 'auth/user-not-found') {
+                            // If user not found, try to create a new account
+                            createUserWithEmailAndPassword(auth, email, password)
+                                .catch((regError) => {
+                                    showLoading(false);
+                                    showMessage(regError.message, true);
+                                });
+                        } else {
+                             showLoading(false);
+                             showMessage(error.message, true);
+                        }
                     });
             });
 
-            // Step 2: OTP Verification
-            document.getElementById('otp-form')?.addEventListener('submit', (e) => {
-                e.preventDefault(); showLoading(true);
-                const otp = document.getElementById('otp-code').value;
-                if (!window.confirmationResult) {
-                    showMessage('Verification failed. Please request a new OTP.', true);
-                    showLoading(false); showScreen('phone-screen'); return;
-                }
-                window.confirmationResult.confirm(otp)
-                    .then(() => showLoading(false))
-                    .catch(() => { showLoading(false); showMessage('Invalid OTP.', true); });
-            });
 
-            // Step 3: KYC Process
+            // Step 2: KYC Process
             document.getElementById('kyc-start-btn')?.addEventListener('click', () => showScreen('privacy-policy-screen'));
             document.getElementById('agree-policy-btn')?.addEventListener('click', () => {
                 kycData.policyAgreed = true; showScreen('nid-front-screen');
@@ -172,7 +145,7 @@
             setupImageUpload('nid-back-input', 'nid-back-preview', 'selfie-screen', 'nid_back');
             setupImageUpload('selfie-input', 'selfie-preview', 'signature-screen', 'selfie');
             
-            // Step 4: Signature Pad
+            // Step 3: Signature Pad
             const canvas = document.getElementById('signature-canvas');
             if (canvas) {
                 const ctx = canvas.getContext('2d');
@@ -206,7 +179,7 @@
                 });
             }
 
-            // Step 5: PIN Setup
+            // Step 4: PIN Setup
             document.getElementById('pin-form')?.addEventListener('submit', async (e) => {
                 e.preventDefault(); showLoading(true);
                 const pin = document.getElementById('pin-input').value;
@@ -222,9 +195,9 @@
                 }
             });
 
-            // Step 6: App Logic
+            // Step 5: App Logic
             function setupAppForUser(user, userData) {
-                document.getElementById('user-name').textContent = userData.phoneNumber;
+                document.getElementById('user-name').textContent = userData.email;
                 document.getElementById('balance-amount').textContent = `৳${userData.balance.toFixed(2)}`;
             }
             document.getElementById('logout-btn')?.addEventListener('click', () => signOut(auth));
@@ -241,7 +214,6 @@
         .form-btn { width: 100%; padding: 12px; border-radius: 8px; margin-top: 16px; color: white; font-weight: bold; }
         #signature-canvas { border: 2px dashed #ccc; border-radius: 8px; cursor: crosshair; }
         .file-input-label { border: 2px dashed #e2136e; padding: 2rem; border-radius: 8px; cursor: pointer; text-align:center; }
-        .grecaptcha-badge { visibility: hidden !important; }
     </style>
 </head>
 <body class="bg-gray-200">
@@ -258,31 +230,15 @@
             <button id="start-reg-btn" class="form-btn bkash-pink-bg">লগ ইন / রেজিস্ট্রেশন</button>
         </div>
 
-        <div id="phone-screen" class="screen hidden p-6">
-            <h2 class="text-xl font-bold mb-4">আপনার ফোন নম্বর দিন</h2>
-            <form id="phone-form">
-                <div class="flex items-center">
-                    <span class="border border-gray-300 rounded-l-lg p-3 bg-gray-100">+88</span>
-                    <input type="tel" id="phone-number" class="form-input rounded-l-none mt-0" placeholder="01XXXXXXXXX" required>
-                </div>
+        <div id="login-screen" class="screen hidden p-6">
+            <h2 class="text-xl font-bold mb-4">লগ ইন বা রেজিস্টার করুন</h2>
+            <form id="login-form">
+                <input type="email" id="email-input" class="form-input" placeholder="আপনার ইমেল দিন" required>
+                <input type="password" id="password-input" class="form-input" placeholder="আপনার পাসওয়ার্ড দিন" required>
+                <p class="text-xs text-gray-500 text-center mt-4">
+                    আপনার অ্যাকাউন্ট না থাকলে, এই তথ্য দিয়ে একটি নতুন অ্যাকাউন্ট তৈরি হয়ে যাবে।
+                </p>
                 <button type="submit" class="form-btn bkash-pink-bg">এগিয়ে যান</button>
-            </form>
-            <p class="text-xs text-gray-500 text-center mt-4">
-                This site is protected by reCAPTCHA and the Google
-                <a href="https://policies.google.com/privacy" class="bkash-pink" target="_blank">Privacy Policy</a> and
-                <a href="https://policies.google.com/terms" class="bkash-pink" target="_blank">Terms of Service</a> apply.
-            </p>
-                <!-- reCAPTCHA v2 Checkbox will appear here -->
-                <div id="recaptcha-container" class="mt-4 flex justify-center">
-                
-        </div>
-
-        <div id="otp-screen" class="screen hidden p-6">
-            <h2 class="text-xl font-bold mb-4">OTP ভেরিফিকেশন</h2>
-            <p class="text-gray-600 mb-4">আপনার ফোনে পাঠানো ৬-ডিজিটের কোডটি দিন।</p>
-            <form id="otp-form">
-                <input type="number" id="otp-code" class="form-input text-center tracking-[1em]" placeholder="------" required>
-                <button type="submit" class="form-btn bkash-pink-bg">ভেরিফাই করুন</button>
             </form>
         </div>
 
